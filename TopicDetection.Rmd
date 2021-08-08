@@ -2,7 +2,9 @@
 title: "TopicAnalysis"
 author: "Julio Portella"
 date: "8/8/2021"
-output: pdf_document
+output:
+  word_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -60,7 +62,7 @@ filenames <- Sys.glob("D:/Globant/Task1/data/*.xml")
 
 The next thing to do is to load everything into a dataframe. This dataframe will have the address of the file and teh abstract. Since there are some files that have no abstract, they will have a value that will help to remove them later. This code chunk takes a while to run
 
-```{r}
+```{r, echo=FALSE}
 files <- filenames#[1:100]
 abstracts <- filenames#[1:100]
 for(var in 1:length(files))
@@ -72,21 +74,18 @@ for(var in 1:length(files))
     abstracts[var] <- files[var]
   })
 }
-print(abstracts)
 class.df<- data.frame(files,abstracts)
-class.df
 ```
 
 The next process is to clean the dataset from the elements that have no abstract. Since the files and the abstract have the same text if there's no abstract, we can remove in a simple way with the following code
 
-```{r}
+```{r,echo=FALSE}
 class.df.clean<-class.df[!(class.df$files==class.df$abstracts),]
-class.df.clean
 ```
 
 Now that the DataFrame is cleared, we need to pre process the data. We have to remove stopwords, and apply different natural language processing algorithms to get the important words that will allow us to extract the topics. In this case, I added a couple of stop words from the original code, since this is an abstract compilation, it makes sense to remove the word research, project and students. 
 
-```{r}
+```{r, echo=FALSE}
 # create a document term matrix to clean
 reviewsCorpus <- Corpus(VectorSource(class.df$abstracts)) 
 reviewsDTM <- DocumentTermMatrix(reviewsCorpus)
@@ -112,7 +111,7 @@ cleaned_documents <- reviewsDTM_tidy_cleaned %>%
 
 # check out what the cleaned documents look like (should just be a bunch of content words)
 # in alphabetic order
-head(cleaned_documents)
+#head(cleaned_documents)
 ```
 
 Compared to the cleared data frame, this one looks not readable for the human but for the machine is clear and it allows to get the topic
