@@ -1,0 +1,183 @@
+---
+title: "TopicAnalysis"
+author: "Julio Portella"
+date: "8/8/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Topic analysis
+
+The goal in this task is to create an algorithm that classifies abstracts into a topic. Indeed, your goal is to group abstracts based on their semantic similarity. Given that this is an unsupervised learning task we can set the number of topics at convenience but not the type of topics.
+
+## Solution description
+
+This is a NLP topic modelling task. For this case, most of the libraries are written in R and even if I have some personal bias towards Python. I prefer to work with R in this case. The process is summarized in the following
+
+**1.** Data extraction
+
+**2.** Data frame creation
+
+**3.** Natural language processing functions
+
+**4.** Topic analysis
+
+**5.** Conclusion
+
+## Data Extraction
+As standard procedure, the first thing to do is to import the libraries
+
+```{r cars}
+library(xml2)
+library(tidyverse)
+library(tidyverse) # general utility & workflow functions
+library(tidytext) # tidy implimentation of NLP methods
+library(topicmodels) # for LDA topic modelling 
+library(tm) # general text mining functions, making document term matrixes
+library(SnowballC) # for stemming
+library(tm)
+library(tmap)
+```
+
+The first thing done was to get an abstract from a file
+```{r pressure, echo=FALSE}
+data_l = as_list(read_xml('D:/Globant/Task1/data/2000005.xml'))
+print('This is the abstract')
+print(data_l$rootTag$Award$AbstractNarration[[1]])
+```
+
+Now that we know that we can get an abstract we proceed to the dataframe creation
+
+## Data frame creation
+
+Let's ge all the xml files from the folder and put it into a variable
+```{r}
+filenames <- Sys.glob("D:/Globant/Task1/data/*.xml")
+```
+
+The next thing to do is to load everything into a dataframe. This dataframe will have the address of the file and teh abstract. Since there are some files that have no abstract, they will have a value that will help to remove them later. This code chunk takes a while to run
+
+```{r}
+files <- filenames#[1:100]
+abstracts <- filenames#[1:100]
+for(var in 1:length(files))
+{
+  tryCatch({
+    data_l = as_list(read_xml(files[var]))
+    abstracts[var] <- data_l$rootTag$Award$AbstractNarration[[1]]
+  },error=function(e){
+    abstracts[var] <- files[var]
+  })
+}
+print(abstracts)
+class.df<- data.frame(files,abstracts)
+class.df
+```
+
+The next process is to clean the dataset from the elements that have no abstract. Since the files and the abstract have the same text if there's no abstract, we can remove in a simple way with the following code
+
+```{r}
+class.df.clean<-class.df[!(class.df$files==class.df$abstracts),]
+class.df.clean
+```
+
+Now that the DataFrame is cleared, we need to pre process the data. We have to remove stopwords, and apply different natural language processing algorithms to get the important words that will allow us to extract the topics. In this case, I added a couple of stop words from the original code, since this is an abstract compilation, it makes sense to remove the word research, project and students. 
+
+```{r}
+# create a document term matrix to clean
+reviewsCorpus <- Corpus(VectorSource(class.df$abstracts)) 
+reviewsDTM <- DocumentTermMatrix(reviewsCorpus)
+
+# convert the document term matrix to a tidytext corpus
+reviewsDTM_tidy <- tidy(reviewsDTM)
+
+# I'm going to add my own custom stop words that I don't think will be
+# very informative in hotel reviews
+custom_stop_words <- tibble(word = c("research", "project","students"))
+
+# remove stopwords
+reviewsDTM_tidy_cleaned <- reviewsDTM_tidy %>% # take our tidy dtm and...
+    anti_join(stop_words, by = c("term" = "word")) %>% # remove English stopwords and...
+    anti_join(custom_stop_words, by = c("term" = "word")) # remove my custom stopwords
+
+# reconstruct cleaned documents (so that each word shows up the correct number of times)
+cleaned_documents <- reviewsDTM_tidy_cleaned %>%
+    group_by(document) %>% 
+    mutate(terms = toString(rep(term, count))) %>%
+    select(document, terms) %>%
+    unique()
+
+# check out what the cleaned documents look like (should just be a bunch of content words)
+# in alphabetic order
+head(cleaned_documents)
+```
+
+Compared to the cleared data frame, this one looks not readable for the human but for the machine is clear and it allows to get the topic
+
+## Natural language processing functions
+
+In this function the corpus is created and with the Latent Dirichlet Allocation (LDA), the topics can be modelled. 
+
+```{r}
+top_terms_by_topic_LDA <- function(input_text, # should be a columm from a dataframe
+                                   plot = T, # return a plot? TRUE by defult
+                                   number_of_topics = 4) # number of topics (4 by default)
+{    
+    # create a corpus (type of object expected by tm) and document term matrix
+    Corpus <- Corpus(VectorSource(input_text)) # make a corpus object
+    DTM <- DocumentTermMatrix(Corpus) # get the count of words/document
+
+    # remove any empty rows in our document term matrix (if there are any 
+    # we'll get an error when we try to run our LDA)
+    unique_indexes <- unique(DTM$i) # get the index of each unique value
+    DTM <- DTM[unique_indexes,] # get a subset of only those indexes
+    
+    # preform LDA & get the words/topic in a tidy text format
+    lda <- LDA(DTM, k = number_of_topics, control = list(seed = 1234))
+    topics <- tidy(lda, matrix = "beta")
+
+    # get the top ten terms for each topic
+    top_terms <- topics  %>% # take the topics data frame and..
+      group_by(topic) %>% # treat each topic as a different group
+      top_n(10, beta) %>% # get the top 10 most informative words
+      ungroup() %>% # ungroup
+      arrange(topic, -beta) # arrange words in descending informativeness
+
+    # if the user asks for a plot (TRUE by default)
+    if(plot == T){
+        # plot the top ten terms for each topic in order
+        top_terms %>% # take the top terms
+          mutate(term = reorder(term, beta)) %>% # sort terms by beta value 
+          ggplot(aes(term, beta, fill = factor(topic))) + # plot beta by theme
+          geom_col(show.legend = FALSE) + # as a bar plot
+          facet_wrap(~ topic, scales = "free") + # which each topic in a seperate plot
+          labs(x = NULL, y = "Beta") + # no x label, change y label 
+          coord_flip() # turn bars sideways
+    }else{ 
+        # if the user does not request a plot
+        # return a list of sorted terms instead
+        return(top_terms)
+    }
+}
+```
+
+## Topic analysis
+
+Now that we have the algorithm ready, let's model some topics. We're going to start with 6 topics
+
+```{r}
+top_terms_by_topic_LDA(cleaned_documents$terms, number_of_topics = 6)
+```
+In this case we can see that the main topic is related to an award from the Naturla Science Foundation. Another important topic is related to the understanding of quantum, probably computing. The third topic is in the evaluation. The fift topic is interesting because it is related to the climate change. While the 6th topic is the education
+
+## Conclusion
+
+NLP provides very useful tools to understand a big group of datasets and have an idea of it. Manually reading the over 2000 abstracts is a tedious tasks while NLP in less time can give an insight
+
+## Aknowledgments
+
+Special thanks for Rachael Tatman for her NLP code that was the reference
+https://www.kaggle.com/rtatman/nlp-in-r-topic-modelling/data?select=deceptive-opinion.csv
